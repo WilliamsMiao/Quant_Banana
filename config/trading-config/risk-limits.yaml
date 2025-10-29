@@ -1,0 +1,21 @@
+# 风险控制配置
+risk_management:
+  # 单笔交易限制
+  max_order_size: 100000  # 最大单笔订单金额
+  max_position_per_stock: 0.1  # 单只股票最大仓位比例
+  
+  # 日度限制
+  max_daily_loss: 50000  # 最大日亏损
+  max_daily_trades: 100  # 最大日交易次数
+  
+  # 组合限制
+  max_portfolio_value: 10000000  # 最大组合价值
+  max_sector_exposure: 0.3  # 最大行业暴露
+  
+  # 止损设置
+  stop_loss_percentage: 0.05  # 止损比例
+  trailing_stop_percentage: 0.03  # 跟踪止损比例
+  
+  # 风控检查频率
+  risk_check_interval: 60  # 秒
+  position_check_interval: 300  # 秒

@@ -1,0 +1,47 @@
+# 研究分析依赖
+-r base.txt
+
+# 数据科学
+jupyter>=1.0.0
+jupyterlab>=4.0.0
+notebook>=6.5.0
+
+# 机器学习
+scikit-learn>=1.3.0
+xgboost>=1.7.0
+lightgbm>=4.0.0
+catboost>=1.2.0
+
+# 深度学习
+torch>=2.0.0
+tensorflow>=2.13.0
+transformers>=4.30.0
+
+# 技术分析
+ta-lib>=0.4.0
+ta>=0.10.0
+
+# 数据源
+yfinance>=0.2.0
+tushare>=1.2.0
+akshare>=1.8.0
+ccxt>=4.0.0
+
+# 可视化
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.15.0
+bokeh>=3.2.0
+
+# 统计分析
+statsmodels>=0.14.0
+arch>=6.2.0
+pyfolio>=0.9.0
+
+# 向量数据库
+chromadb>=0.4.0
+faiss-cpu>=1.7.0
+
+# 其他工具
+tqdm>=4.65.0
+joblib>=1.3.0

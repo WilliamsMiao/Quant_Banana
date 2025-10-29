@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # PostgreSQL数据库
+  postgres:
+    image: postgres:13
+    container_name: quant_trading_postgres
+    environment:
+      POSTGRES_DB: quant_trading
+      POSTGRES_USER: quant_user
+      POSTGRES_PASSWORD: quant_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - quant_network
+
+  # Redis缓存
+  redis:
+    image: redis:6-alpine
+    container_name: quant_trading_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - quant_network
+
+  # 后端API服务
+  backend:
+    build:
+      context: ../../
+      dockerfile: scripts/docker/Dockerfile.backend
+    container_name: quant_trading_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://quant_user:quant_password@postgres:5432/quant_trading
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ../../backend:/app/backend
+      - ../../config:/app/config
+    networks:
+      - quant_network
+
+  # 前端应用
+  frontend:
+    build:
+      context: ../../
+      dockerfile: scripts/docker/Dockerfile.frontend
+    container_name: quant_trading_frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ../../frontend:/app/frontend
+    networks:
+      - quant_network
+
+  # Nginx反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: quant_trading_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - quant_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  quant_network:
+    driver: bridge
