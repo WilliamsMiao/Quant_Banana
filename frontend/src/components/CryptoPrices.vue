@@ -1,33 +1,42 @@
 <template>
-  <div class="crypto-prices">
+  <div class="stock-prices">
     <div 
-      v-for="crypto in cryptos" 
-      :key="crypto.symbol" 
-      class="crypto-item"
+      v-for="stock in stocks" 
+      :key="stock.symbol" 
+      class="stock-item"
     >
-      <div class="crypto-info">
-        <img :src="crypto.icon" :alt="crypto.symbol" class="crypto-icon" />
-        <span class="crypto-symbol">{{ crypto.symbol }}</span>
+      <div class="stock-info">
+        <img :src="stock.icon" :alt="stock.symbol" class="stock-icon" />
+        <span class="stock-symbol">{{ stock.symbol }}</span>
       </div>
-      <div class="crypto-price">
+      <div class="stock-price">
         <span class="dollar-sign">$</span>
-        <span class="price-value">{{ formatPrice(crypto.price) }}</span>
+        <span class="price-value">{{ formatPrice(stock.price) }}</span>
+        <span 
+          :class="['price-change', stock.change >= 0 ? 'positive' : 'negative']"
+        >
+          {{ stock.change >= 0 ? '+' : '' }}{{ stock.change.toFixed(2) }}%
+        </span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { stockService } from '@/services/stockService'
+import { websocketService } from '@/services/websocketService'
 
-const cryptos = ref([
-  { symbol: 'BTC', price: 111174.50, icon: '/crypto/btc.svg' },
-  { symbol: 'ETH', price: 3967.0123456789, icon: '/crypto/eth.svg' },
-  { symbol: 'SOL', price: 195.0123456789, icon: '/crypto/sol.svg' },
-  { symbol: 'BNB', price: 1100.0123456789, icon: '/crypto/bnb.svg' },
-  { symbol: 'DOGE', price: 0.1920, icon: '/crypto/doge.svg' },
-  { symbol: 'XRP', price: 0.62, icon: '/crypto/xrp.svg' }
+const stocks = ref([
+  { symbol: 'AAPL', price: 150.25, change: 1.25, icon: '/stocks/aapl.svg' },
+  { symbol: 'MSFT', price: 320.45, change: -0.85, icon: '/stocks/msft.svg' },
+  { symbol: 'GOOGL', price: 2800.12, change: 2.15, icon: '/stocks/googl.svg' },
+  { symbol: 'TSLA', price: 245.67, change: -1.45, icon: '/stocks/tsla.svg' },
+  { symbol: 'NVDA', price: 420.89, change: 3.25, icon: '/stocks/nvda.svg' },
+  { symbol: 'AMZN', price: 3150.33, change: 0.75, icon: '/stocks/amzn.svg' }
 ])
+
+let priceUpdateInterval = null
 
 const formatPrice = (price) => {
   if (price >= 1000) {
@@ -45,26 +54,60 @@ const formatPrice = (price) => {
   }
 }
 
-// 模拟实时价格更新
-onMounted(() => {
-  setInterval(() => {
-    cryptos.value.forEach(crypto => {
-      const change = (Math.random() - 0.5) * crypto.price * 0.001
-      crypto.price = Math.max(0.0001, crypto.price + change)
-    })
-  }, 1000)
+const fetchStockPrices = async () => {
+  try {
+    const data = await stockService.getStockPrices()
+    if (data && data.length > 0) {
+      stocks.value = data
+    }
+  } catch (error) {
+    console.error('获取股票价格失败:', error)
+  }
+}
+
+onMounted(async () => {
+  // 初始获取数据
+  await fetchStockPrices()
+  
+  // 设置定时更新（备用方案）
+  priceUpdateInterval = setInterval(fetchStockPrices, 30000) // 每30秒更新一次
+  
+  // 订阅WebSocket实时数据
+  const symbols = stocks.value.map(stock => stock.symbol)
+  websocketService.subscribeStockPrices(symbols, (data) => {
+    const stockIndex = stocks.value.findIndex(stock => stock.symbol === data.symbol)
+    if (stockIndex !== -1) {
+      stocks.value[stockIndex] = {
+        ...stocks.value[stockIndex],
+        price: data.price,
+        change: data.change
+      }
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (priceUpdateInterval) {
+    clearInterval(priceUpdateInterval)
+  }
+  
+  // 取消WebSocket订阅
+  const symbols = stocks.value.map(stock => stock.symbol)
+  symbols.forEach(symbol => {
+    websocketService.unsubscribe('stock_prices')
+  })
 })
 </script>
 
 <style lang="scss" scoped>
-.crypto-prices {
+.stock-prices {
   display: flex;
   gap: 24px;
   flex-wrap: wrap;
   margin-bottom: 32px;
 }
 
-.crypto-item {
+.stock-item {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -72,29 +115,36 @@ onMounted(() => {
   background: #0a0a0a;
   border: 1px solid #1a1a1a;
   border-radius: 8px;
-  min-width: 180px;
+  min-width: 200px;
+  transition: all 0.2s;
+  
+  &:hover {
+    border-color: #00ff88;
+    background: #0f0f0f;
+  }
 }
 
-.crypto-info {
+.stock-info {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.crypto-icon {
+.stock-icon {
   width: 24px;
   height: 24px;
 }
 
-.crypto-symbol {
+.stock-symbol {
   font-size: 14px;
   font-weight: 600;
   color: #fff;
 }
 
-.crypto-price {
+.stock-price {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
 }
 
@@ -109,5 +159,22 @@ onMounted(() => {
   font-weight: 600;
   color: #fff;
   font-variant-numeric: tabular-nums;
+}
+
+.price-change {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  
+  &.positive {
+    color: #00ff88;
+    background: rgba(0, 255, 136, 0.1);
+  }
+  
+  &.negative {
+    color: #ff4444;
+    background: rgba(255, 68, 68, 0.1);
+  }
 }
 </style>

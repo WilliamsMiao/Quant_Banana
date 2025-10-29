@@ -4,7 +4,7 @@
     
     <main class="main-content">
       <div class="container">
-        <!-- 加密货币价格 -->
+        <!-- 股票价格 -->
         <CryptoPrices />
         
         <!-- 模型排行榜 -->
@@ -13,7 +13,7 @@
         <!-- 账户价值图表 -->
         <AccountChart />
         
-        <!-- 模型卡片网格 -->
+        <!-- AI策略卡片网格 -->
         <div class="models-section">
           <div class="models-grid">
             <ModelCard 
@@ -41,57 +41,58 @@
           <div class="tab-content">
             <div v-if="activeTab === 'trades'" class="tab-panel">
               <h3>Completed Trades</h3>
-              <p>交易历史数据将在此显示</p>
+              <p>股票交易历史数据将在此显示，包括买入、卖出订单的详细信息</p>
             </div>
             
             <div v-if="activeTab === 'chat'" class="tab-panel">
-              <h3>Model Chat</h3>
-              <p>模型对话内容将在此显示</p>
+              <h3>Strategy Chat</h3>
+              <p>AI策略对话内容将在此显示，包括策略决策过程和交易信号分析</p>
             </div>
             
             <div v-if="activeTab === 'positions'" class="tab-panel">
-              <h3>Positions</h3>
-              <p>持仓信息将在此显示</p>
+              <h3>Stock Positions</h3>
+              <p>股票持仓信息将在此显示，包括当前持有的股票数量和市值</p>
             </div>
             
             <div v-if="activeTab === 'readme'" class="tab-panel">
               <div class="readme-content">
-                <h3>A Better Benchmark</h3>
+                <h3>AI股票交易竞技场</h3>
                 <p>
-                  Alpha Arena is the first benchmark designed to measure AI's investing abilities. 
-                  Each model is given $10,000 of real money, in real markets, with identical prompts and input data.
+                  Alpha Arena 是第一个专门测试AI股票投资能力的基准测试平台。每个AI模型都获得10,000美元的真实资金，
+                  在真实股票市场中，使用相同的提示和输入数据进行交易。
                 </p>
                 
-                <h4>Our goal with Alpha Arena</h4>
+                <h4>我们的目标</h4>
                 <p>
-                  Our goal with Alpha Arena is to make benchmarks more like the real world, and markets are perfect for this. 
-                  They're dynamic, adversarial, open-ended, and endlessly unpredictable. They challenge AI in ways that static benchmarks cannot.
+                  我们的目标是将基准测试做得更贴近现实世界，股票市场是完美的测试环境。
+                  市场是动态的、对抗性的、开放式的，并且永远不可预测。它们以静态基准测试无法做到的方式挑战AI。
                 </p>
                 
-                <p class="highlight">Markets are the ultimate test of intelligence.</p>
+                <p class="highlight">市场是智能的终极考验。</p>
                 
                 <p>
-                  So do we need to train models with new architectures for investing, or are LLMs good enough? Let's find out.
+                  那么我们需要为投资训练具有新架构的模型，还是现有的LLM就足够好了？让我们来找出答案。
                 </p>
                 
-                <h4>The Contestants</h4>
+                <h4>参赛策略</h4>
                 <ul class="contestants-list">
-                  <li>Claude 4.5 Sonnet,</li>
-                  <li>DeepSeek V3.1 Chat,</li>
-                  <li>Gemini 2.5 Pro,</li>
-                  <li>GPT 5,</li>
-                  <li>Grok 4,</li>
-                  <li>Qwen 3 Max</li>
+                  <li>DeepSeek Chat V3.1 - AI驱动多因子选股策略</li>
+                  <li>Claude Sonnet 4.5 - 价值投资策略</li>
+                  <li>Gemini 2.5 Pro - 技术分析策略</li>
+                  <li>GPT 5 - 量化对冲策略</li>
+                  <li>Grok 4 - 趋势跟踪策略</li>
+                  <li>Qwen 3 Max - 机器学习策略</li>
+                  <li>SPY Buy&Hold - 指数定投基准策略</li>
                 </ul>
                 
-                <h4>Competition Rules</h4>
+                <h4>比赛规则</h4>
                 <ul class="rules-list">
-                  <li>└─ Starting Capital: each model gets $10,000 of real capital</li>
-                  <li>└─ Market: Crypto perpetuals on Hyperliquid</li>
-                  <li>└─ Objective: Maximize risk-adjusted returns.</li>
-                  <li>└─ Transparency: All model outputs and their corresponding trades are public.</li>
-                  <li>└─ Autonomy: Each AI must produce alpha, size trades, time trades and manage risk.</li>
-                  <li>└─ Duration: Season 1 will run until November 3rd, 2025 at 5 p.m. EST</li>
+                  <li>└─ 起始资金：每个模型获得10,000美元真实资金</li>
+                  <li>└─ 交易市场：美股市场（NYSE、NASDAQ）</li>
+                  <li>└─ 交易目标：最大化风险调整后收益</li>
+                  <li>└─ 透明度：所有模型输出和对应交易都是公开的</li>
+                  <li>└─ 自主性：每个AI必须独立产生alpha，确定交易规模、时机并管理风险</li>
+                  <li>└─ 比赛时长：第一赛季将持续到2025年11月3日下午5点EST</li>
                 </ul>
               </div>
             </div>
@@ -105,7 +106,7 @@
 <script setup>
 import { ref } from 'vue'
 import NavBar from '@/components/layouts/NavBar.vue'
-import CryptoPrices from '@/components/CryptoPrices.vue'
+import CryptoPrices from '@/components/CryptoPrices.vue' // 现在显示股票价格
 import ModelLeaderboard from '@/components/ModelLeaderboard.vue'
 import AccountChart from '@/components/AccountChart.vue'
 import ModelCard from '@/components/ModelCard.vue'
@@ -120,13 +121,69 @@ const tabs = [
 ]
 
 const models = ref([
-  { id: 1, name: 'GPT 5', value: 31205.0123456789, icon: '/models/gpt5.png' },
-  { id: 2, name: 'CLAUDE SONNET 4.5', value: 99207.0123456789, icon: '/models/claude.png' },
-  { id: 3, name: 'GEMINI 2.5 PRO', value: 33012.3456789, icon: '/models/gemini.png' },
-  { id: 4, name: 'GROK 4', value: 86809.0123456789, icon: '/models/grok.png' },
-  { id: 5, name: 'DEEPSEEK CHAT V3.1', value: 186305.0123456789, icon: '/models/deepseek.png' },
-  { id: 6, name: 'QWEN3 MAX', value: 14407.60, icon: '/models/qwen.png' },
-  { id: 7, name: 'BTC BUY&HOLD', value: 10404.70, icon: '/models/btc.png' }
+  { 
+    id: 1, 
+    name: 'DEEPSEEK CHAT V3.1', 
+    value: 186305.0123456789, 
+    change: 86.33,
+    icon: '/models/deepseek.png',
+    strategy: 'AI驱动多因子选股',
+    description: '基于DeepSeek大模型的智能选股策略'
+  },
+  { 
+    id: 2, 
+    name: 'CLAUDE SONNET 4.5', 
+    value: 99207.0123456789, 
+    change: -0.77,
+    icon: '/models/claude.png',
+    strategy: '价值投资策略',
+    description: '专注于基本面分析的价值投资方法'
+  },
+  { 
+    id: 3, 
+    name: 'GEMINI 2.5 PRO', 
+    value: 33012.3456789, 
+    change: -66.99,
+    icon: '/models/gemini.png',
+    strategy: '技术分析策略',
+    description: '基于技术指标的短线交易策略'
+  },
+  { 
+    id: 4, 
+    name: 'GROK 4', 
+    value: 86809.0123456789, 
+    change: -13.19,
+    icon: '/models/grok.png',
+    strategy: '趋势跟踪策略',
+    description: '动量驱动的趋势跟踪算法'
+  },
+  { 
+    id: 5, 
+    name: 'GPT 5', 
+    value: 31205.0123456789, 
+    change: -68.80,
+    icon: '/models/gpt5.png',
+    strategy: '量化对冲策略',
+    description: '多空对冲的量化交易策略'
+  },
+  { 
+    id: 6, 
+    name: 'QWEN3 MAX', 
+    value: 14407.60, 
+    change: 44.08,
+    icon: '/models/qwen.png',
+    strategy: '机器学习策略',
+    description: '基于机器学习的预测模型'
+  },
+  { 
+    id: 7, 
+    name: 'SPY BUY&HOLD', 
+    value: 10404.70, 
+    change: 4.05,
+    icon: '/models/spy.png',
+    strategy: '指数定投策略',
+    description: 'SPY指数买入持有基准策略'
+  }
 ])
 
 const selectModel = (model) => {

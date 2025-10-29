@@ -13,7 +13,7 @@
           <span class="divider">|</span>
           <router-link to="/blog" class="nav-link">BLOG</router-link>
           <span class="divider">|</span>
-          <button class="nav-button" @click="showModels">MODELS</button>
+          <button class="nav-button" @click="showStrategies">STRATEGIES</button>
         </div>
       </div>
       <div class="navbar-right">
@@ -31,9 +31,9 @@
 </template>
 
 <script setup>
-const showModels = () => {
-  // 显示模型列表
-  console.log('Show models')
+const showStrategies = () => {
+  // 显示策略列表
+  console.log('Show strategies')
 }
 </script>
 

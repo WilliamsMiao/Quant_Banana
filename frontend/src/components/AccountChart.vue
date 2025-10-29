@@ -31,6 +31,8 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
+import { backtestService } from '@/services/backtestService'
+import { websocketService } from '@/services/websocketService'
 
 const chartContainer = ref(null)
 const chartCanvas = ref(null)
@@ -40,22 +42,40 @@ const selectedValueFilter = ref('$')
 const timeFilters = ['ALL', '72H']
 const valueFilters = ['$', '%']
 
-// 模拟图表数据
-const generateChartData = () => {
+// 获取策略性能数据
+const fetchChartData = async () => {
+  try {
+    const data = await backtestService.getBacktestHistory({
+      limit: 30,
+      timeframe: selectedTimeFilter.value === 'ALL' ? '1d' : '1h'
+    })
+    return data.map(item => ({
+      date: new Date(item.timestamp),
+      value: item.account_value,
+      strategy: item.strategy_name
+    }))
+  } catch (error) {
+    console.error('获取图表数据失败:', error)
+    return generateMockData()
+  }
+}
+
+// 生成模拟数据（备用）
+const generateMockData = () => {
   const data = []
   const now = Date.now()
-  const days = 30
+  const days = selectedTimeFilter.value === 'ALL' ? 30 : 3
   
   for (let i = days; i >= 0; i--) {
     const date = new Date(now - i * 24 * 60 * 60 * 1000)
     const value = 10000 + Math.random() * 8000 + Math.sin(i / 5) * 3000
-    data.push({ date, value })
+    data.push({ date, value, strategy: 'DeepSeek Chat V3.1' })
   }
   
   return data
 }
 
-const drawChart = () => {
+const drawChart = async () => {
   if (!chartCanvas.value || !chartContainer.value) return
   
   const canvas = chartCanvas.value
@@ -65,7 +85,7 @@ const drawChart = () => {
   canvas.width = container.clientWidth
   canvas.height = container.clientHeight
   
-  const data = generateChartData()
+  const data = await fetchChartData()
   const padding = { top: 40, right: 40, bottom: 40, left: 60 }
   const width = canvas.width - padding.left - padding.right
   const height = canvas.height - padding.top - padding.bottom
@@ -73,10 +93,7 @@ const drawChart = () => {
   // 清除画布
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   
-  // 设置样式
-  ctx.fillStyle = '#000'
-  ctx.strokeStyle = '#00ff88'
-  ctx.lineWidth = 2
+  if (data.length === 0) return
   
   // 计算数据范围
   const values = data.map(d => d.value)
@@ -106,13 +123,26 @@ const drawChart = () => {
     ctx.fillText(`$${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, padding.left - 10, y + 4)
   }
   
+  // 绘制X轴标签
+  const xSteps = Math.min(5, data.length)
+  for (let i = 0; i < xSteps; i++) {
+    const index = Math.floor((data.length - 1) * i / (xSteps - 1))
+    const x = padding.left + (width / (data.length - 1)) * index
+    const date = data[index].date
+    
+    ctx.fillStyle = '#888'
+    ctx.font = '10px monospace'
+    ctx.textAlign = 'center'
+    ctx.fillText(date.toLocaleDateString(), x, canvas.height - 10)
+  }
+  
   // 绘制数据线
   ctx.strokeStyle = '#00ff88'
   ctx.lineWidth = 2
   ctx.beginPath()
   
   data.forEach((point, index) => {
-    const x = padding.left + (width / data.length) * index
+    const x = padding.left + (width / (data.length - 1)) * index
     const normalizedValue = (point.value - minValue) / valueRange
     const y = padding.top + height * (1 - normalizedValue)
     
@@ -128,7 +158,7 @@ const drawChart = () => {
   // 绘制数据点
   ctx.fillStyle = '#00ff88'
   data.forEach((point, index) => {
-    const x = padding.left + (width / data.length) * index
+    const x = padding.left + (width / (data.length - 1)) * index
     const normalizedValue = (point.value - minValue) / valueRange
     const y = padding.top + height * (1 - normalizedValue)
     
@@ -138,13 +168,18 @@ const drawChart = () => {
   })
 }
 
-onMounted(() => {
-  drawChart()
+onMounted(async () => {
+  await drawChart()
   window.addEventListener('resize', drawChart)
+  
+  // 订阅实时数据更新
+  websocketService.subscribe('account_value_updates', (data) => {
+    drawChart()
+  })
 })
 
-watch([selectedTimeFilter, selectedValueFilter], () => {
-  drawChart()
+watch([selectedTimeFilter, selectedValueFilter], async () => {
+  await drawChart()
 })
 </script>
 
