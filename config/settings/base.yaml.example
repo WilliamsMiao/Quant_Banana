@@ -1,0 +1,72 @@
+# 基础配置文件模板
+# 复制此文件为 base.yaml 并根据实际情况修改
+
+app:
+  name: "Quant Trading Bot"
+  version: "1.0.0"
+  debug: false
+  host: "0.0.0.0"
+  port: 8000
+
+database:
+  # url 中的密码请从 config/secrets/secrets.yaml 中配置
+  url: "postgresql://user:PLACEHOLDER_PASSWORD@localhost:5432/quant_trading"
+  pool_size: 10
+  max_overflow: 20
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  password: null
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/app.log"
+
+api:
+  webull:
+    base_url: "https://quotes-gw.webull.com"
+    timeout: 30
+
+  futu:
+    host: "127.0.0.1"
+    api_port: 11111
+    ws_port: 33333
+    # ws_key 请从 config/secrets/secrets.yaml 中配置
+
+  deepseek:
+    base_url: "https://api.deepseek.com"
+    timeout: 60
+
+market_data:
+  subscription:
+    symbols: ["HK.00700"]
+    period: "1m"
+
+# dingding 和 dingding_tuning 配置请从 config/secrets/secrets.yaml 中配置
+
+trading:
+  max_position_size: 1000000
+  max_daily_loss: 50000
+  risk_check_interval: 60
+
+strategy:
+  optimized_hk_intraday:
+    enabled: true
+    initial_capital: 10000
+    signal_strength_threshold: 60
+    risk_reward_ratio: 1.5
+    trade_stop_loss: 0.015
+    max_position_ratio: 0.3
+    donchian_window: 20
+
+ai:
+  reflection:
+    enabled: true           # 开启反思，但严格限流
+    interval_sec: 1800      # 单个条目最短反思间隔（秒）
+    price_change_threshold: 0.01  # 与上次检查价差占比阈值（1%）
+    max_events_per_hour: 1  # 全局每小时最多触发次数
+    push: true              # 是否将反思结果推送钉钉
+
