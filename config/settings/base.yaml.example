@@ -36,11 +36,23 @@ api:
     ws_port: 33333
     # ws_key 请从 config/secrets/secrets.yaml 中配置
 
+  itick:
+    base_url: "https://api.itick.org"  # iTick REST API基础URL
+    ws_url: "wss://ws.itick.org"  # iTick WebSocket API基础URL
+    timeout: 30
+    # token 请从 config/secrets/secrets.yaml 中配置
+
+  sina:
+    timeout: 30
+    # access_key 和 secret_key 请从 config/secrets/secrets.yaml 中配置（如使用SAE API）
+
   deepseek:
     base_url: "https://api.deepseek.com"
     timeout: 60
 
 market_data:
+  primary_provider: "futu"  # 主数据源: futu/itick/sina/akshare
+  fallback_providers: ["itick", "sina"]  # 备用数据源列表
   subscription:
     symbols: ["HK.00700"]
     period: "1m"

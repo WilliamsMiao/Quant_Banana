@@ -19,6 +19,7 @@ redis>=4.5.0
 httpx>=0.24.0
 aiohttp>=3.8.0
 websockets>=11.0.0
+requests>=2.31.0  # 用于部分数据源的REST API调用
 
 # 配置管理
 pyyaml>=6.0
@@ -33,3 +34,7 @@ python-dateutil>=2.8.0
 pytz>=2023.3
 click>=8.1.0
 tqdm>=4.65.0
+
+# 数据源集成
+akshare>=1.14.0  # 财经数据接口库，支持历史数据和实时数据
+futu-api>=6.0.0  # Futu OpenD API SDK，用于港股/美股市场数据

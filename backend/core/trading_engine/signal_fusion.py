@@ -310,10 +310,16 @@ class SignalFusionEngine:
         if strat_signal.take_profit <= 0 or ai_signal.take_profit <= 0:
             return max(strat_signal.take_profit, ai_signal.take_profit)
         
+        # BUY时：止盈在价格上方，取更低的止盈（更保守，目标更近）
+        # SELL时：止盈在价格下方，取更低的止盈（更保守，目标更近）
+        # 注意：对于SELL，更低的止盈意味着更接近当前价格，更保守
         if strat_signal.direction == SignalDirection.BUY:
-            return min(strat_signal.take_profit, ai_signal.take_profit)  # 取更低的止盈（更保守）
+            # BUY: 止盈在价格上方，取较小的（更保守）
+            return min(strat_signal.take_profit, ai_signal.take_profit)
         else:
-            return max(strat_signal.take_profit, ai_signal.take_profit)  # 取更高的止盈（更保守）
+            # SELL: 止盈在价格下方，取较大的（更接近价格，更保守）
+            # 例如：628.0 vs 627.0，取628.0（更接近当前价格631.0，更保守）
+            return max(strat_signal.take_profit, ai_signal.take_profit)
 
 
 class SignalFilter:
@@ -359,9 +365,20 @@ class SignalFilter:
         # 风险收益比过滤（需要有效的止损和止盈）
         if signal.stop_loss > 0 and signal.take_profit > 0 and abs(signal.price - signal.stop_loss) > 0:
             try:
-                risk_reward = abs(signal.take_profit - signal.price) / abs(signal.price - signal.stop_loss)
-                if risk_reward < self.min_risk_reward:
-                    return False, f"风险收益比不足: {risk_reward:.2f} < {self.min_risk_reward}"
+                # 根据方向计算风险收益比
+                if signal.direction == SignalDirection.BUY:
+                    # BUY: 止损在下方，止盈在上方
+                    risk = abs(signal.price - signal.stop_loss)  # 价格 - 止损（下方）
+                    reward = abs(signal.take_profit - signal.price)  # 止盈（上方） - 价格
+                else:
+                    # SELL: 止损在上方，止盈在下方
+                    risk = abs(signal.stop_loss - signal.price)  # 止损（上方） - 价格
+                    reward = abs(signal.price - signal.take_profit)  # 价格 - 止盈（下方）
+                
+                if risk > 0:
+                    risk_reward = reward / risk
+                    if risk_reward < self.min_risk_reward:
+                        return False, f"风险收益比不足: {risk_reward:.2f} < {self.min_risk_reward}"
             except (ZeroDivisionError, ValueError):
                 pass
         

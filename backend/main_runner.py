@@ -51,6 +51,33 @@ def load_config() -> dict:
                     cfg["api"]["futu"] = {}
                 cfg["api"]["futu"]["ws_key"] = secrets["futu"]["ws_key"]
             
+            # 合并iTick token
+            if "itick" in secrets:
+                if "api" not in cfg:
+                    cfg["api"] = {}
+                if "itick" not in cfg["api"]:
+                    cfg["api"]["itick"] = {}
+                if "token" in secrets["itick"]:
+                    cfg["api"]["itick"]["token"] = secrets["itick"]["token"]
+            
+            # 合并新浪云配置
+            if "sina" in secrets:
+                if "api" not in cfg:
+                    cfg["api"] = {}
+                if "sina" not in cfg["api"]:
+                    cfg["api"]["sina"] = {}
+                if "access_key" in secrets["sina"]:
+                    cfg["api"]["sina"]["access_key"] = secrets["sina"]["access_key"]
+                if "secret_key" in secrets["sina"]:
+                    cfg["api"]["sina"]["secret_key"] = secrets["sina"]["secret_key"]
+            
+            # 创建secrets配置节点（用于provider_factory）
+            cfg["secrets"] = {
+                "futu": secrets.get("futu", {}),
+                "itick": secrets.get("itick", {}),
+                "sina": secrets.get("sina", {}),
+            }
+            
             # 合并钉钉配置
             if "dingding" in secrets:
                 cfg["dingding"] = secrets["dingding"]
@@ -76,15 +103,23 @@ def load_config() -> dict:
 
 async def main():
     cfg = load_config()
-    futu_cfg = cfg.get("api", {}).get("futu", {})
     md_cfg = cfg.get("market_data", {}).get("subscription", {})
 
-    provider = FutuMarketDataProvider(
-        host=str(futu_cfg.get("host", "127.0.0.1")),
-        api_port=int(futu_cfg.get("api_port", 11111)),
-        ws_port=int(futu_cfg.get("ws_port", 33333)),
-        ws_key=str(futu_cfg.get("ws_key", "")),
-    )
+    # 使用ProviderFactory创建多数据源管理器
+    from data.market_data.provider_factory import ProviderFactory, MultiProviderManager
+    
+    primary_provider, fallback_providers = ProviderFactory.create_providers_from_config(cfg)
+    
+    if not primary_provider:
+        raise RuntimeError("无法创建主数据源，请检查配置")
+    
+    # 创建多数据源管理器
+    provider_manager = MultiProviderManager(primary_provider, fallback_providers)
+    
+    # 获取当前使用的数据源（默认是主数据源）
+    provider = provider_manager.get_provider()
+    if not provider:
+        raise RuntimeError("没有可用的数据源")
     market_cache = MarketCache(maxlen=2000)
     event_mgr = EventManager()
     order_mgr = OrderManager()
@@ -101,6 +136,9 @@ async def main():
         pull_interval_sec=2.0,
         lookback=200,
     )
+    
+    # 保存provider_manager引用以便故障转移
+    runner.provider_manager = provider_manager
 
     # AI 组件注册
     # 载入 secrets（DeepSeek api_key）
@@ -170,7 +208,16 @@ async def main():
     # 账户信息获取器（按需查询）
     def fetch_account_info():
         from api_clients.futu_client.client import FutuClient
-        c = FutuClient(host=str(futu_cfg.get("host", "127.0.0.1")), api_port=int(futu_cfg.get("api_port", 11111)), ws_port=int(futu_cfg.get("ws_port", 33333)), ws_key=str(futu_cfg.get("ws_key", "")))
+        # 从配置中获取futu配置
+        futu_cfg_local = cfg.get("api", {}).get("futu", {})
+        futu_secrets = cfg.get("secrets", {}).get("futu", {})
+        ws_key = futu_secrets.get("ws_key", "")
+        c = FutuClient(
+            host=str(futu_cfg_local.get("host", "127.0.0.1")),
+            api_port=int(futu_cfg_local.get("api_port", 11111)),
+            ws_port=int(futu_cfg_local.get("ws_port", 33333)),
+            ws_key=str(ws_key)
+        )
         try:
             c.connect()
             return c.get_account_info()
@@ -359,11 +406,14 @@ async def main():
                     
                     if qty > 0:
                         from api_clients.futu_client.client import FutuClient
+                        futu_cfg_local = cfg.get("api", {}).get("futu", {})
+                        futu_secrets = cfg.get("secrets", {}).get("futu", {})
+                        ws_key = futu_secrets.get("ws_key", "")
                         trade_client = FutuClient(
-                            host=str(futu_cfg.get("host", "127.0.0.1")),
-                            api_port=int(futu_cfg.get("api_port", 11111)),
-                            ws_port=int(futu_cfg.get("ws_port", 33333)),
-                            ws_key=str(futu_cfg.get("ws_key", "")),
+                            host=str(futu_cfg_local.get("host", "127.0.0.1")),
+                            api_port=int(futu_cfg_local.get("api_port", 11111)),
+                            ws_port=int(futu_cfg_local.get("ws_port", 33333)),
+                            ws_key=str(ws_key),
                         )
                         try:
                             trade_client.connect()
@@ -504,8 +554,22 @@ async def main():
                         ),
                     )
             else:
-                print(f"[AI决策] {evt.data.get('symbol')}: 放弃交易")
-                # 放弃交易时不推送
+                symbol = evt.data.get('symbol')
+                fused_signal = evt.data.get("fused_signal")
+                reason = "未知原因"
+                
+                if not fused_signal:
+                    reason = "未生成融合信号"
+                elif fused_signal.get("direction", "").upper() == "HOLD":
+                    reason = fused_signal.get("reason", "信号被过滤")
+                elif not should_execute:
+                    reason = f"条件不满足（方向={fused_signal.get('direction')}, 置信度={fused_signal.get('confidence', 0):.1f}%）"
+                
+                import logging
+                logger_local = logging.getLogger(__name__)
+                logger_local.info(f"[AI决策] {symbol}: 放弃交易 - {reason}")
+                # 放弃交易时不推送（避免刷屏）
+                # 但可以添加日志或统计信息
     event_mgr.register_handler(EventType.SYSTEM_EVENT, print_ai_decision)
 
     # 策略

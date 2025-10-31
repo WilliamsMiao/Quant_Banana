@@ -42,6 +42,7 @@ class StrategyRunner:
         self.pull_interval_sec = pull_interval_sec
         self.lookback = lookback
         self._running = False
+        self.provider_manager = None  # 可选：MultiProviderManager实例，用于故障转移
 
     async def start(self, strategy: BaseStrategy, symbols: List[str]) -> None:
         logger.info(f"启动策略运行器: {strategy.name}, symbols={symbols}, period={self.period}")
@@ -53,9 +54,31 @@ class StrategyRunner:
         try:
             while self._running:
                 for sym in symbols:
-                    bars = self.provider.fetch_bars(sym, self.period, self.lookback)
-                    self.market_cache.put_bars(sym, bars)
-                    df = _bars_to_df(bars)
+                    try:
+                        bars = self.provider.fetch_bars(sym, self.period, self.lookback)
+                        self.market_cache.put_bars(sym, bars)
+                        df = _bars_to_df(bars)
+                    except Exception as e:
+                        logger.error(f"获取市场数据失败: {sym}, {e}")
+                        # 如果使用MultiProviderManager，尝试故障转移
+                        if self.provider_manager:
+                            if self.provider_manager.switch_to_fallback(e):
+                                # 切换成功，更新provider引用
+                                self.provider = self.provider_manager.get_provider()
+                                logger.info(f"已切换到备用数据源，重新尝试获取数据: {sym}")
+                                try:
+                                    bars = self.provider.fetch_bars(sym, self.period, self.lookback)
+                                    self.market_cache.put_bars(sym, bars)
+                                    df = _bars_to_df(bars)
+                                except Exception as retry_error:
+                                    logger.error(f"备用数据源也失败: {sym}, {retry_error}")
+                                    continue
+                            else:
+                                logger.error(f"所有数据源都不可用: {sym}")
+                                continue
+                        else:
+                            # 没有provider_manager，只记录错误
+                            continue
                     # 观测日志：打印最近一根K线与VWAP
                     if not df.empty:
                         try:
@@ -73,7 +96,10 @@ class StrategyRunner:
                 await asyncio.sleep(self.pull_interval_sec)
         finally:
             strategy.stop()
-            self.provider.close()
+            if self.provider_manager:
+                self.provider_manager.close()
+            elif self.provider:
+                self.provider.close()
             self._running = False
             logger.info("策略运行器已停止")
 
