@@ -109,6 +109,10 @@ class BaseStrategy(ABC):
         """获取最近的交易信号"""
         return self.signals[-limit:] if self.signals else []
     
+    def clear_signals(self):
+        """清空信号队列（防止重复处理）"""
+        self.signals.clear()
+    
     def update_config(self, new_config: Dict[str, Any]):
         """更新策略配置"""
         self.config.update(new_config)

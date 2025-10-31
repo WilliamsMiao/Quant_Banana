@@ -3,7 +3,6 @@
 ## 系统要求
 
 - Python 3.9+
-- Node.js 16+
 - PostgreSQL 13+
 - Redis 6+
 - Docker (可选)
@@ -31,13 +30,7 @@ cp config/secrets/api-keys.yaml.example config/secrets/api-keys.yaml
 # 编辑配置文件，填入API密钥
 ```
 
-### 3. 前端环境
-```bash
-cd frontend
-npm install
-```
-
-### 4. 数据库设置
+### 3. 数据库设置
 ```bash
 # 启动PostgreSQL和Redis
 docker-compose up -d postgres redis
@@ -46,14 +39,10 @@ docker-compose up -d postgres redis
 python backend/scripts/migrate.py
 ```
 
-### 5. 启动开发服务器
+### 4. 启动开发服务器
 ```bash
 # 后端
 python backend/web_api/main.py
-
-# 前端
-cd frontend
-npm run dev
 ```
 
 ## 开发工具配置
@@ -70,8 +59,4 @@ npm run dev
 # Python
 black backend/
 isort backend/
-
-# JavaScript/Vue
-cd frontend
-npm run format
 ```

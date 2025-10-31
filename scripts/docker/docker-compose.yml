@@ -48,21 +48,6 @@ services:
     networks:
       - quant_network
 
-  # 前端应用
-  frontend:
-    build:
-      context: ../../
-      dockerfile: scripts/docker/Dockerfile.frontend
-    container_name: quant_trading_frontend
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    volumes:
-      - ../../frontend:/app/frontend
-    networks:
-      - quant_network
-
   # Nginx反向代理
   nginx:
     image: nginx:alpine
@@ -75,7 +60,6 @@ services:
       - ./nginx/ssl:/etc/nginx/ssl
     depends_on:
       - backend
-      - frontend
     networks:
       - quant_network
 

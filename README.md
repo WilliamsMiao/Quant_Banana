@@ -9,7 +9,6 @@ quant-trading-bot/
 ├── 📚 docs/                           # 项目文档
 ├── 🔧 config/                         # 配置文件
 ├── 📊 backend/                        # 后端核心
-├── 🖥️ frontend/                       # 前端应用
 ├── 📈 research/                       # 策略研究
 ├── 🧪 tests/                          # 测试代码
 ├── 🚀 scripts/                        # 部署和工具脚本
@@ -30,20 +29,10 @@ cd Quant_Banana
 pip install -r requirements/base.txt
 ```
 
-3. 安装前端依赖
-```bash
-cd frontend
-npm install
-```
-
-4. 启动开发环境
+3. 启动开发环境
 ```bash
 # 后端
 python backend/web_api/main.py
-
-# 前端
-cd frontend
-npm run dev
 ```
 
 ## 🎯 核心功能
@@ -64,11 +53,6 @@ npm run dev
 - **缓存**: Redis
 - **监控**: Prometheus + Grafana
 
-### 前端
-- **框架**: Vue 3 + Vite
-- **状态管理**: Pinia
-- **图表**: ECharts
-- **UI**: Element Plus
 
 ## 📝 开发规范
 
