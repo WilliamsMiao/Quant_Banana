@@ -32,8 +32,46 @@ logging.basicConfig(level=logging.INFO)
 
 
 def load_config() -> dict:
+    """加载配置文件，从base.yaml读取基础配置，从secrets.yaml读取敏感信息并合并"""
+    # 加载基础配置
     with open("config/settings/base.yaml", "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+    
+    # 从secrets.yaml加载所有敏感信息
+    secrets_path = "config/secrets/secrets.yaml"
+    if os.path.exists(secrets_path):
+        with open(secrets_path, "r", encoding="utf-8") as sf:
+            secrets = yaml.safe_load(sf) or {}
+            
+            # 合并Futu ws_key
+            if "futu" in secrets and "ws_key" in secrets["futu"]:
+                if "api" not in cfg:
+                    cfg["api"] = {}
+                if "futu" not in cfg["api"]:
+                    cfg["api"]["futu"] = {}
+                cfg["api"]["futu"]["ws_key"] = secrets["futu"]["ws_key"]
+            
+            # 合并钉钉配置
+            if "dingding" in secrets:
+                cfg["dingding"] = secrets["dingding"]
+            if "dingding_tuning" in secrets:
+                cfg["dingding_tuning"] = secrets["dingding_tuning"]
+            
+            # 合并数据库密码（如果secrets中有）
+            if "database" in secrets and "password" in secrets["database"]:
+                if "database" not in cfg:
+                    cfg["database"] = {}
+                db_password = secrets["database"]["password"]
+                db_url = cfg["database"].get("url", "postgresql://user:password@localhost:5432/quant_trading")
+                # 替换URL中的密码
+                import re
+                cfg["database"]["url"] = re.sub(
+                    r'(://[^:]+:)([^@]+)(@)',
+                    rf'\1{db_password}\3',
+                    db_url
+                )
+    
+    return cfg
 
 
 async def main():
@@ -83,11 +121,12 @@ async def main():
         "ai_decision",
         (
             "# 量化交易决策指令\n"
-            "你是一个严格执行纪律的量化交易系统。基于提供的策略信号和市场数据，输出唯一明确的交易决策。\n\n"
+            "你是一个严格执行纪律的量化交易系统。基于提供的市场数据和技术指标，自主判断交易方向并输出明确的交易决策。\n\n"
+            "# 重要提示\n"
+            "你**必须自主判断**交易方向（买入/卖出/持有），不要被任何提示影响。只基于市场数据和技术指标做出判断。\n\n"
             "# 输入数据（REQUIRED_FIELDS）\n"
             "symbol={symbol}\n"
-            "action={action}\n"
-            "reason={reason}\n"
+            "策略信号原因: {reason}\n"
             "bars={bars}\n"
             "current_price={current_price}\n"
             "key_levels={key_levels}\n"
@@ -101,15 +140,16 @@ async def main():
             "## 最终决策\n"
             "[执行交易｜放弃交易]\n\n"
             "## 决策详情\n"
-            "**操作方向**: {action}\n"
+            "**操作方向**: [必须明确输出：buy/买入、sell/卖出、hold/持有 三者之一]\n"
             "**信心度**: [0-100]%\n"
             "**仓位权重**: [0-100%]\n"
-            "**止损价格**: [具体数值]\n"
-            "**止盈目标**: [具体数值]\n\n"
+            "**止损价格**: [具体数值，如无则填0]\n"
+            "**止盈目标**: [具体数值，如无则填0]\n\n"
             "## 决策依据\n"
-            "1. 关键因素: 简述\n"
-            "2. 风险收益比: 量化描述\n"
-            "3. 时间框架匹配: 简述\n"
+            "1. 关键因素: 简述你判断方向的关键因素\n"
+            "2. 风险收益比: 量化描述（如选择持有，说明原因）\n"
+            "3. 时间框架匹配: 简述\n\n"
+            "注意：操作方向必须是 buy/sell/hold 之一，不要输出其他值。"
         ),
     )
     # 注册 AI 反思模板
@@ -139,7 +179,28 @@ async def main():
 
     # 交易记忆
     journal = TradeMemory(storage_path="data/trade_journal.jsonl")
-    decision_engine = DecisionEngine(market_cache, ai_mgr, prompt_mgr, event_mgr, get_account_info=fetch_account_info, trade_memory=journal)
+    
+    # 信号融合配置
+    fusion_cfg = (cfg.get("signal_fusion", {}) or {})
+    fusion_config = {
+        "source_weights": fusion_cfg.get("source_weights", {"strategy": 0.45, "ai": 0.55}),
+        "performance_file": fusion_cfg.get("performance_file", "data/signal_performance.json"),
+    }
+    filter_config = {
+        "min_confidence": float(fusion_cfg.get("min_confidence", 60)),
+        "min_risk_reward": float(fusion_cfg.get("min_risk_reward", 1.3)),
+        "max_position_ratio": float(fusion_cfg.get("max_position_ratio", 0.3)),
+        "cooldown_period_minutes": int(fusion_cfg.get("cooldown_period_minutes", 10)),
+        "initial_capital": float(cfg.get("strategy", {}).get("optimized_hk_intraday", {}).get("initial_capital", 10000)),
+    }
+    
+    decision_engine = DecisionEngine(
+        market_cache, ai_mgr, prompt_mgr, event_mgr, 
+        get_account_info=fetch_account_info, 
+        trade_memory=journal,
+        fusion_config=fusion_config,
+        filter_config=filter_config
+    )
     event_mgr.register_handler(EventType.MARKET_DATA, ai_gateway.on_event)
     event_mgr.register_handler(EventType.STRATEGY_SIGNAL, ai_gateway.on_event)
     event_mgr.register_handler(EventType.STRATEGY_SIGNAL, decision_engine.on_strategy_signal)
@@ -157,6 +218,50 @@ async def main():
     order_cooldown_cache = {}
     ORDER_COOLDOWN_SEC = 300  # 5分钟冷却期
     
+    # 辅助函数：将字典转换为TradingSignal（用于性能跟踪）
+    def _dict_to_trading_signal(signal_dict: dict, symbol: str):
+        """将信号字典转换为TradingSignal对象"""
+        from core.trading_engine.signal_fusion import TradingSignal, SignalSource, SignalDirection
+        from datetime import datetime as dt
+        
+        if not signal_dict:
+            return None
+            
+        source_str = signal_dict.get("source", "ai_decision")
+        try:
+            source = SignalSource(source_str)
+        except ValueError:
+            source = SignalSource.AI_DECISION
+        
+        direction_str = signal_dict.get("direction", "")
+        try:
+            direction = SignalDirection(direction_str)
+        except ValueError:
+            direction = SignalDirection.HOLD
+        
+        timestamp_str = signal_dict.get("timestamp", "")
+        if isinstance(timestamp_str, str) and timestamp_str:
+            try:
+                timestamp = dt.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            except:
+                timestamp = dt.now()
+        else:
+            timestamp = dt.now()
+        
+        return TradingSignal(
+            source=source,
+            direction=direction,
+            symbol=symbol,
+            timestamp=timestamp,
+            confidence=float(signal_dict.get("confidence", 0)),
+            price=float(signal_dict.get("price", 0)),
+            position_size=int(signal_dict.get("position_size", 0)),
+            stop_loss=float(signal_dict.get("stop_loss", 0)),
+            take_profit=float(signal_dict.get("take_profit", 0)),
+            reason=str(signal_dict.get("reason", "")),
+            metadata=signal_dict.get("metadata", {})
+        )
+    
     async def print_ai_decision(evt):
         if evt.event_type == EventType.SYSTEM_EVENT and evt.data.get("type") == "AI_DECISION":
             # 记录交易意图
@@ -166,19 +271,36 @@ async def main():
                 pass
             print("AI_DECISION:", evt.data.get("symbol"), evt.data.get("ai", {}))
             
-            # 尝试解析AI决策并下单（仅当决策为"执行交易"时）
-            ai_output = evt.data.get("ai", {}).get("output", {})
-            decision_text = str(ai_output.get("summary", "")) if isinstance(ai_output, dict) else str(ai_output)
-            should_execute = "执行交易" in decision_text and "放弃交易" not in decision_text
+            # 使用融合后的信号进行决策
+            fused_signal = evt.data.get("fused_signal")
+            direction_match = evt.data.get("direction_match", False)
+            fusion_type = evt.data.get("fusion_type", "unknown")
+            
+            # 判断是否执行：融合信号方向不为HOLD，且置信度足够
+            should_execute = False
+            execution_direction = None
+            execution_qty = 0
+            execution_price = None
+            
+            if fused_signal:
+                direction = fused_signal.get("direction", "").upper()
+                confidence = float(fused_signal.get("confidence", 0))
+                min_confidence = float(cfg.get("signal_fusion", {}).get("min_confidence", 60))
+                
+                # 只有当方向不为HOLD且置信度足够时才执行
+                if direction != "HOLD" and confidence >= min_confidence:
+                    should_execute = True
+                    execution_direction = direction
+                    execution_qty = int(fused_signal.get("position_size", 0))
+                    execution_price = float(fused_signal.get("price", 0)) if fused_signal.get("price") else None
             
             # 只在执行交易时推送（且仅当下单成功或失败有明确结果时）
             # 注意：推送和下单是同步的，但只有下单尝试后才推送
             order_result = None
-            if should_execute:
+            if should_execute and execution_direction:
                 import time
                 symbol = evt.data.get("symbol")
-                action = evt.data.get("strategy_action", "").upper()
-                side = "BUY" if action in ("BUY", "buy") else "SELL"
+                side = execution_direction  # 使用融合信号的方向
                 
                 # 检查冷却期
                 cooldown_key = (symbol, side)
@@ -202,19 +324,20 @@ async def main():
                 if order_result and order_result.get("cooldown", False):
                     pass  # 已在冷却期检查中设置 order_result
                 else:
-                    # 先尝试下单，获取结果
-                    ai_input = evt.data.get("ai_input", {})
-                    # 从原始策略信号获取数量（若AI输出中有则优先）
-                    qty = None
-                    price = None
-                    try:
-                        # 尝试从策略信号事件中获取
-                        sig_data = evt.data.get("original_signal", {})
-                        qty = int(sig_data.get("qty") or sig_data.get("quantity") or 0)
-                        price = float(sig_data.get("price") or 0) if sig_data.get("price") else None
-                    except Exception:
-                        pass
-                    # 若没有，尝试从AI输入推断（默认最小单位）
+                    # 使用融合信号的数量和价格
+                    qty = execution_qty
+                    price = execution_price
+                    
+                    # 如果没有，尝试从原始信号获取（降级处理）
+                    if not qty or qty <= 0:
+                        try:
+                            sig_data = evt.data.get("original_signal", {})
+                            qty = int(sig_data.get("qty") or sig_data.get("quantity") or 0)
+                            price = float(sig_data.get("price") or 0) if sig_data.get("price") else price
+                        except Exception:
+                            pass
+                    
+                    # 若仍然没有，使用默认最小单位
                     if not qty or qty <= 0:
                         qty = 100  # 默认100股
                     
@@ -255,8 +378,81 @@ async def main():
                             order_result = result
                             if result.get("ok"):
                                 print(f"[下单成功] {symbol} {side} {qty}股, order_id={result.get('order_id')}")
+                                
+                                # 记录交易结果用于性能跟踪
+                                try:
+                                    # 从事件数据中获取融合信号和原始信号
+                                    fused_signal_dict = evt.data.get("fused_signal")
+                                    strategy_signal_dict = evt.data.get("strategy_signal")
+                                    ai_signal_dict = evt.data.get("ai_signal")
+                                    fusion_type = evt.data.get("fusion_type", "unknown")
+                                    
+                                    if fused_signal_dict:
+                                        from core.trading_engine.signal_fusion import TradingSignal, SignalSource, SignalDirection
+                                        from datetime import datetime as dt
+                                        
+                                        # 根据融合类型决定如何跟踪
+                                        if fusion_type == "agreed":
+                                            # 方向一致：策略和AI都成功
+                                            if strategy_signal_dict:
+                                                strat_signal = _dict_to_trading_signal(strategy_signal_dict, symbol)
+                                                if strat_signal:
+                                                    decision_engine.fusion_engine.record_trade_outcome(strat_signal, True, 0.0)
+                                            if ai_signal_dict:
+                                                ai_signal = _dict_to_trading_signal(ai_signal_dict, symbol)
+                                                if ai_signal:
+                                                    decision_engine.fusion_engine.record_trade_outcome(ai_signal, True, 0.0)
+                                        elif fusion_type == "conflict_resolved":
+                                            # 冲突解决：胜出方成功，败方失败
+                                            winning_source = fused_signal_dict.get("metadata", {}).get("winning_source", "")
+                                            if winning_source == "strategy_engine":
+                                                if strategy_signal_dict:
+                                                    strat_signal = _dict_to_trading_signal(strategy_signal_dict, symbol)
+                                                    if strat_signal:
+                                                        decision_engine.fusion_engine.record_trade_outcome(strat_signal, True, 0.0)
+                                                if ai_signal_dict:
+                                                    ai_signal = _dict_to_trading_signal(ai_signal_dict, symbol)
+                                                    if ai_signal:
+                                                        decision_engine.fusion_engine.record_trade_outcome(ai_signal, False, 0.0)
+                                            elif winning_source == "ai_decision":
+                                                if ai_signal_dict:
+                                                    ai_signal = _dict_to_trading_signal(ai_signal_dict, symbol)
+                                                    if ai_signal:
+                                                        decision_engine.fusion_engine.record_trade_outcome(ai_signal, True, 0.0)
+                                                if strategy_signal_dict:
+                                                    strat_signal = _dict_to_trading_signal(strategy_signal_dict, symbol)
+                                                    if strat_signal:
+                                                        decision_engine.fusion_engine.record_trade_outcome(strat_signal, False, 0.0)
+                                        
+                                        import logging
+                                        logging.getLogger(__name__).info(f"[性能跟踪] 记录交易成功: {symbol} {side}, 融合类型: {fusion_type}, 订单ID: {result.get('order_id')}")
+                                except Exception as e:
+                                    import logging
+                                    logging.getLogger(__name__).warning(f"[性能跟踪] 记录失败: {e}", exc_info=True)
                             else:
                                 print(f"[下单失败] {symbol} {side} {qty}股: {result.get('error')}")
+                                
+                                # 记录交易失败（用于性能跟踪）
+                                try:
+                                    fusion_type = evt.data.get("fusion_type", "unknown")
+                                    strategy_signal_dict = evt.data.get("strategy_signal")
+                                    ai_signal_dict = evt.data.get("ai_signal")
+                                    
+                                    # 交易失败时，记录策略和AI都失败
+                                    if fusion_type in ("agreed", "conflict_resolved"):
+                                        # 方向一致但执行失败：两个信号源都失败
+                                        # 冲突解决但执行失败：胜出方和败方都失败（因为最终执行失败）
+                                        if strategy_signal_dict:
+                                            strat_signal = _dict_to_trading_signal(strategy_signal_dict, symbol)
+                                            if strat_signal:
+                                                decision_engine.fusion_engine.record_trade_outcome(strat_signal, False, 0.0)
+                                        if ai_signal_dict:
+                                            ai_signal = _dict_to_trading_signal(ai_signal_dict, symbol)
+                                            if ai_signal:
+                                                decision_engine.fusion_engine.record_trade_outcome(ai_signal, False, 0.0)
+                                except Exception as e:
+                                    import logging
+                                    logging.getLogger(__name__).warning(f"[性能跟踪] 记录失败结果失败: {e}")
                         except Exception as e:
                             print(f"[下单异常] {symbol}: {e}")
                             order_result = {"ok": False, "error": str(e)}
@@ -343,6 +539,21 @@ async def main():
             await asyncio.sleep(300)
 
     loop.create_task(refresh_capital_task())
+    
+    # 定期更新信号源权重（每30分钟）
+    async def update_fusion_weights_task():
+        while True:
+            try:
+                decision_engine.fusion_engine.update_source_weights()
+                import logging
+                logging.getLogger(__name__).info("[权重更新] 已更新信号源权重")
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"[权重更新] 失败: {e}", exc_info=True)
+            await asyncio.sleep(1800)  # 30分钟
+    
+    loop.create_task(update_fusion_weights_task())
+    
     # 周期反思任务（每5分钟刷新一次）
     async def periodic_review():
         from datetime import datetime, timedelta

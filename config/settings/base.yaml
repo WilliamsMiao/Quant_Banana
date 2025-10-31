@@ -1,6 +1,4 @@
-# 基础配置文件模板
-# 复制此文件为 base.yaml 并根据实际情况修改
-
+# 基础配置文件
 app:
   name: "Quant Trading Bot"
   version: "1.0.0"
@@ -34,7 +32,6 @@ api:
     host: "127.0.0.1"
     api_port: 11111
     ws_port: 33333
-    # ws_key 请从 config/secrets/secrets.yaml 中配置
 
   deepseek:
     base_url: "https://api.deepseek.com"
@@ -44,8 +41,6 @@ market_data:
   subscription:
     symbols: ["HK.00700"]
     period: "1m"
-
-# dingding 和 dingding_tuning 配置请从 config/secrets/secrets.yaml 中配置
 
 trading:
   max_position_size: 1000000
@@ -69,4 +64,15 @@ ai:
     price_change_threshold: 0.01  # 与上次检查价差占比阈值（1%）
     max_events_per_hour: 1  # 全局每小时最多触发次数
     push: true              # 是否将反思结果推送钉钉
+
+signal_fusion:
+  source_weights:
+    strategy: 0.45          # 策略机初始权重
+    ai: 0.55                # AI决策初始权重
+  min_confidence: 60        # 最小置信度阈值（%）
+  min_risk_reward: 1.3      # 最小风险收益比
+  max_position_ratio: 0.3    # 最大仓位比例
+  cooldown_period_minutes: 10  # 信号冷却期（分钟）
+  enable_performance_tracking: true  # 是否启用性能跟踪
+  performance_file: "data/signal_performance.json"  # 性能数据文件
 

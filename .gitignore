@@ -53,7 +53,8 @@ venv.bak/
 .env.production.local
 
 # 配置文件（包含敏感信息）
-config/secrets/
+config/secrets/*
+!config/secrets/
 !config/secrets/*.example
 
 # 数据库文件
