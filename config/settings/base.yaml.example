@@ -82,3 +82,10 @@ ai:
     max_events_per_hour: 1  # 全局每小时最多触发次数
     push: true              # 是否将反思结果推送钉钉
 
+trading_hours:
+  market: "HK"                      # 市场类型: HK(港股)/US(美股)/CN(A股)
+  auto_start_before_minutes: 10     # 开盘前几分钟自动启动
+  auto_stop_after_minutes: 10       # 收盘后几分钟自动停止
+  timezone: "Asia/Hong_Kong"        # 时区（港股: Asia/Hong_Kong, 美股: America/New_York, A股: Asia/Shanghai）
+  enable_holiday_check: true        # 启用节假日检查（需要安装exchange_calendars）
+

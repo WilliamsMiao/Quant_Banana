@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
+import sys
 from typing import List
+from datetime import timedelta
 
 import os
 import yaml
-import os
 
 from core.event_engine.event_manager import EventManager, EventType, Event
 from core.trading_engine.order_manager import OrderManager
@@ -26,6 +28,7 @@ from ai.decision_engine import DecisionEngine
 from utils.dingtalk_bot import DingTalkBot
 from utils.formatters import format_ai_decision
 from ai.trade_memory import TradeMemory
+from datetime import timedelta
 
 
 logging.basicConfig(level=logging.INFO)
@@ -102,6 +105,127 @@ def load_config() -> dict:
 
 
 async def main():
+    cfg = load_config()
+    
+    # 初始化交易时间管理器
+    trading_hours_cfg = cfg.get("trading_hours", {})
+    market = trading_hours_cfg.get("market", "HK")
+    timezone = trading_hours_cfg.get("timezone", "Asia/Hong_Kong")
+    enable_holiday_check = trading_hours_cfg.get("enable_holiday_check", True)
+    auto_start_before = trading_hours_cfg.get("auto_start_before_minutes", 10)
+    auto_stop_after = trading_hours_cfg.get("auto_stop_after_minutes", 10)
+    
+    from utils.trading_hours import TradingHoursManager
+    hours_manager = TradingHoursManager(market=market, timezone=timezone, enable_holiday_check=enable_holiday_check)
+    
+    logger = logging.getLogger(__name__)
+    
+    # 时间检查和处理
+    now = hours_manager._get_now()
+    logger.info(f"当前时间: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logger.info(f"市场: {market}, 时区: {timezone}")
+    
+    # 检查是否为交易日
+    if not hours_manager.is_trading_day(now):
+        next_open = hours_manager.get_next_open_time()
+        logger.warning(f"当前不是交易日（可能是周末或节假日）")
+        logger.info(f"下次开盘时间: {next_open.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        logger.info("服务退出，等待交易日再启动")
+        return
+    
+    # 检查是否在交易时间内
+    is_currently_trading = hours_manager.is_trading_time(now)
+    if is_currently_trading:
+        logger.info("当前在交易时间内，服务正常启动")
+    else:
+        # 不在交易时间内，检查各种情况
+        seconds_until_open = hours_manager.get_seconds_until_open()
+        
+        if seconds_until_open == 0:
+            # 已过今日收盘时间
+            close_time = hours_manager.get_close_time_today()
+            if close_time:
+                auto_stop_time = close_time + timedelta(minutes=auto_stop_after)
+                if now < auto_stop_time:
+                    logger.info(f"今日已收盘，将在 {auto_stop_time.strftime('%H:%M:%S')} 自动停止（收盘后{auto_stop_after}分钟）")
+                else:
+                    logger.info("已过今日收盘时间，服务退出")
+                    logger.info(f"下次开盘时间: {hours_manager.get_next_open_time().strftime('%Y-%m-%d %H:%M:%S %Z')}")
+                    return
+            else:
+                logger.warning("无法获取收盘时间，服务退出")
+                return
+        elif seconds_until_open <= 1800:  # 30分钟内
+            # 距离开盘30分钟内，等待到开盘前10分钟
+            auto_start_time = hours_manager.get_open_time_today() - timedelta(minutes=auto_start_before)
+            if now < auto_start_time:
+                wait_seconds = (auto_start_time - now).total_seconds()
+                logger.info(f"距离开盘还有 {int(seconds_until_open / 60)} 分钟，等待到开盘前{auto_start_before}分钟（{auto_start_time.strftime('%H:%M:%S')}）启动...")
+                logger.info(f"等待时间: {int(wait_seconds / 60)} 分钟 {int(wait_seconds % 60)} 秒")
+                
+                # 等待到自动启动时间
+                await asyncio.sleep(wait_seconds)
+                logger.info("到达自动启动时间，开始启动服务")
+            else:
+                logger.info("已在自动启动时间范围内，直接启动")
+        else:
+            # 距离开盘超过30分钟
+            next_open = hours_manager.get_next_open_time()
+            logger.info(f"当前不在交易时间内，距离开盘还有 {int(seconds_until_open / 3600)} 小时 {int((seconds_until_open % 3600) / 60)} 分钟")
+            logger.info(f"下次开盘时间: {next_open.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            logger.info("服务退出，建议在开盘前10分钟自动启动")
+            return
+    
+    # 优雅退出标志
+    shutdown_event = asyncio.Event()
+    
+    def signal_handler(signum, frame):
+        logger.info(f"收到信号 {signum}，准备优雅退出...")
+        shutdown_event.set()
+    
+    # 注册信号处理器
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    # 收盘后自动停止的后台任务
+    async def auto_stop_task():
+        """收盘后自动停止任务"""
+        while not shutdown_event.is_set():
+            try:
+                seconds_until_stop = hours_manager.get_seconds_until_auto_stop(auto_stop_after)
+                
+                if seconds_until_stop == 0:
+                    # 已到停止时间
+                    if hours_manager.is_trading_time():
+                        # 还在交易时间内，等待收盘
+                        await asyncio.sleep(60)
+                        continue
+                    else:
+                        # 已收盘且过了停止时间
+                        logger.info(f"到达自动停止时间（收盘后{auto_stop_after}分钟），准备退出...")
+                        close_time = hours_manager.get_close_time_today()
+                        if close_time:
+                            logger.info(f"今日收盘时间: {close_time.strftime('%H:%M:%S')}")
+                        shutdown_event.set()
+                        return
+                elif seconds_until_stop > 0:
+                    # 还未到停止时间，等待
+                    wait_time = min(60.0, seconds_until_stop)  # 最多等待60秒后再次检查
+                    await asyncio.sleep(wait_time)
+                else:
+                    # 异常情况，等待后重试
+                    await asyncio.sleep(60)
+            except Exception as e:
+                logger.error(f"自动停止任务异常: {e}", exc_info=True)
+                await asyncio.sleep(60)
+    
+    # 启动自动停止任务（如果当前在交易时间内或在收盘后10分钟内）
+    auto_stop_task_handle = None
+    close_time = hours_manager.get_close_time_today()
+    if is_currently_trading or (close_time and now < close_time + timedelta(minutes=auto_stop_after)):
+        auto_stop_task_handle = asyncio.create_task(auto_stop_task())
+    
+    # 重新加载配置（时间检查后）
     cfg = load_config()
     md_cfg = cfg.get("market_data", {}).get("subscription", {})
 
@@ -735,8 +859,45 @@ async def main():
             )
         )
     try:
-        await runner.start(strategy, symbols=symbols)
+        # 启动策略运行器
+        runner_task = asyncio.create_task(runner.start(strategy, symbols=symbols))
+        
+        # 等待任务完成或收到退出信号
+        tasks_to_wait = [runner_task]
+        if auto_stop_task_handle:
+            tasks_to_wait.append(auto_stop_task_handle)
+        
+        done, pending = await asyncio.wait(
+            tasks_to_wait,
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # 如果收到退出信号，停止策略运行器
+        if shutdown_event.is_set():
+            logger.info("收到退出信号，停止策略运行器...")
+            await runner.stop()
+            # 取消未完成的任务
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        
+        await runner.stop()
+    except asyncio.CancelledError:
+        logger.info("任务被取消，退出服务")
+    except Exception as e:
+        logger.error(f"服务运行异常: {e}", exc_info=True)
+        raise
     finally:
+        # 确保清理所有任务
+        if auto_stop_task_handle and not auto_stop_task_handle.done():
+            auto_stop_task_handle.cancel()
+            try:
+                await auto_stop_task_handle
+            except asyncio.CancelledError:
+                pass
         await event_mgr.stop()
 
 

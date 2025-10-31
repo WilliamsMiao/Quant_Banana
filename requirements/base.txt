@@ -38,3 +38,6 @@ tqdm>=4.65.0
 # 数据源集成
 akshare>=1.14.0  # 财经数据接口库，支持历史数据和实时数据
 futu-api>=6.0.0  # Futu OpenD API SDK，用于港股/美股市场数据
+
+# 交易日历
+exchange_calendars>=4.5.0  # 交易日历库，支持港股、美股、A股等市场交易日历

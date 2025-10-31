@@ -245,7 +245,7 @@ echo ""
 echo -e "${YELLOW}[7/7] 创建启动脚本...${NC}"
 
 # 创建run.sh启动脚本
-cat > run.sh << 'EOF'
+cat > run.sh << 'EOFSCRIPT'
 #!/bin/bash
 # 量化交易系统启动脚本
 
@@ -267,10 +267,58 @@ if [ ! -f "config/secrets/secrets.yaml" ]; then
     echo "   请配置必要的API密钥"
 fi
 
+# 检查交易时间（如果Python可用）
+if command -v python3 &> /dev/null; then
+    python3 << 'PYEOF'
+import sys
+sys.path.insert(0, '.')
+try:
+    from backend.utils.trading_hours import TradingHoursManager
+    import yaml
+    
+    # 加载配置
+    with open("config/settings/base.yaml", "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    
+    trading_hours_cfg = cfg.get("trading_hours", {})
+    market = trading_hours_cfg.get("market", "HK")
+    timezone = trading_hours_cfg.get("timezone", "Asia/Hong_Kong")
+    enable_holiday_check = trading_hours_cfg.get("enable_holiday_check", True)
+    
+    hours_manager = TradingHoursManager(market=market, timezone=timezone, enable_holiday_check=enable_holiday_check)
+    now = hours_manager._get_now()
+    
+    if hours_manager.is_trading_time(now):
+        print(f"✅ 当前时间: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        print(f"✅ 当前在交易时间内，可以启动服务")
+    elif hours_manager.is_trading_day(now):
+        next_open = hours_manager.get_open_time_today()
+        if next_open:
+            print(f"⚠️  当前时间: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            print(f"⚠️  当前不在交易时间内")
+            print(f"   今日开盘时间: {next_open.strftime('%H:%M:%S')}")
+        else:
+            close_time = hours_manager.get_close_time_today()
+            if close_time:
+                print(f"⚠️  今日已收盘: {close_time.strftime('%H:%M:%S')}")
+    else:
+        next_open = hours_manager.get_next_open_time()
+        print(f"⚠️  当前时间: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        print(f"⚠️  当前不是交易日（可能是周末或节假日）")
+        print(f"   下次开盘时间: {next_open.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        print("")
+        print("   服务将在非交易时间自动退出")
+except Exception as e:
+    # 如果检查失败，不阻止启动，只是不显示提示
+    pass
+PYEOF
+    echo ""
+fi
+
 # 运行主程序
 echo "🚀 启动量化交易系统..."
 python backend/main_runner.py "$@"
-EOF
+EOFSCRIPT
 
 chmod +x run.sh
 echo -e "${GREEN}✅ 启动脚本已创建: ./run.sh${NC}"
